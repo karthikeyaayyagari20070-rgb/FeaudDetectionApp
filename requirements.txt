@@ -6,8 +6,7 @@ scikit-image
 deepface
 retinaface
 pandas
-idfy
-karza
 tensorflow==2.15.0
 keras==2.15.0
 tf-keras
+requests
