@@ -6,3 +6,4 @@ pandas
 scikit-image
 deepface
 Pillow
+tf-keras
