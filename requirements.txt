@@ -1,12 +1,8 @@
-streamlit
+streamlit==1.50.0
 opencv-python-headless
 easyocr
 numpy
+pandas
 scikit-image
 deepface
-retinaface
-pandas
-tensorflow==2.15.0
-keras==2.15.0
-tf-keras
-requests
+Pillow
