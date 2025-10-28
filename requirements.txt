@@ -1,9 +1,17 @@
-streamlit==1.50.0
-opencv-python-headless
-easyocr
-numpy
-pandas
-scikit-image
-deepface
-Pillow
-tf-keras
+# Core (required)
+streamlit>=1.20
+numpy>=1.23
+pandas>=1.5
+pillow>=9.0
+opencv-python>=4.7
+scikit-image>=0.20
+
+# Optional (enable OCR, face verification, PDF/DOCX, Excel)
+easyocr>=1.6          # optional: OCR for images/PDF
+deepface>=0.0.75      # optional: face verification (may require tensorflow)
+pdf2image>=1.16       # optional: convert PDF pages to images (needs system poppler)
+python-docx>=0.8.11   # optional: read DOCX files
+openpyxl>=3.1         # optional: read/write .xlsx files
+
+# Dev / utilities
+python-multipart>=0.0.5  # sometimes helpful for file handling (optional)
