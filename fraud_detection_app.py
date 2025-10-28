@@ -1,6 +1,6 @@
 # app.py
-# AI Fraud Detection System — Professional Light Theme (white background, black text)
-# Save as app.py and run: streamlit run app.py
+# AI Fraud Detection — patched: safe image bytes + robust PDF generation
+# Run: streamlit run app.py
 
 import streamlit as st
 import io
@@ -8,8 +8,10 @@ import numpy as np
 import pandas as pd
 import re
 from PIL import Image
+import base64
+import traceback
 
-# Guard heavy / optional imports so the app won't crash if not installed
+# -------------------- Guarded imports --------------------
 try:
     import cv2
 except Exception:
@@ -25,7 +27,6 @@ try:
 except Exception:
     DeepFace = None
 
-# easyocr cached resource (optional)
 @st.cache_resource
 def get_easyocr_reader():
     try:
@@ -36,124 +37,83 @@ def get_easyocr_reader():
 
 reader = get_easyocr_reader()
 
-# Page config
-st.set_page_config(
-    page_title="AI Fraud Detection",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+try:
+    from pdf2image import convert_from_bytes
+    pdf2image_available = True
+except Exception:
+    convert_from_bytes = None
+    pdf2image_available = False
 
-# ------- PROFESSIONAL LIGHT THEME CSS -------
-css = """
+try:
+    import docx
+    docx_available = True
+except Exception:
+    docx = None
+    docx_available = False
+
+# reportlab for PDF generation (optional)
+try:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.utils import ImageReader
+    from reportlab.pdfgen import canvas
+    reportlab_available = True
+except Exception:
+    reportlab_available = False
+
+# -------------------- Page config + CSS --------------------
+st.set_page_config(page_title="AI Fraud Detection", layout="wide")
+PERSIAN_BLUE = "#1C39BB"
+
+THEME_CSS = f"""
 <style>
-/* Page background and base typography */
-[data-testid="stAppViewContainer"] {
-    background: #ffffff;  /* pure white background */
-    color-scheme: light;
-}
-body, .css-18e3th9, .stApp {
-    color: #111827; /* near-black text for high contrast */
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-}
-
-/* Card style (subtle, neutral) */
-.card {
-    background: #ffffff;
-    border-radius: 10px;
-    padding: 18px;
-    border: 1px solid #e6e9ee; /* faint border for structure */
-    box-shadow: 0 6px 18px rgba(16,24,40,0.04); /* subtle shadow */
-    margin-bottom: 18px;
-}
-
-/* Header */
-.header {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-}
-.logo {
-    width: 56px;
-    height: 56px;
-    border-radius: 10px;
-    background: linear-gradient(180deg,#111827,#374151); /* dark professional accent */
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-weight: 700;
-    font-size: 18px;
-    letter-spacing: 0.5px;
-}
-
-/* Subtext and muted text */
-.small-muted {
-    color: #6b7280; /* neutral muted gray */
-    font-size: 13px;
-}
-
-/* Section title */
-.section-title {
-    font-size: 18px;
-    font-weight: 700;
-    color: #0f172a; /* very dark for headings */
-    margin-bottom: 6px;
-}
-
-/* Keep input/button styles crisp */
-.stButton>button {
-    border-radius: 8px;
-    padding: 8px 12px;
-}
-
-/* Footer */
-.footer {
-    color: #6b7280;
-    font-size: 13px;
-    margin-top: 18px;
-}
+[data-testid="stAppViewContainer"] {{ background: #ffffff; color: #0f172a; }}
+body, .stApp {{ color: #0f172a; font-family: Inter, Roboto, Arial, sans-serif; }}
+[data-testid="stSidebar"] {{ background: {PERSIAN_BLUE} !important; color: #000000 !important; }}
+.card {{ background: #ffffff; border-radius:10px; padding:18px; border:1px solid #eef2f7; box-shadow:0 6px 18px rgba(16,24,40,0.04); margin-bottom:18px; }}
+.section-title {{ font-size:18px; font-weight:700; color:#0f172a; margin-bottom:8px; }}
+.stButton>button {{ background: {PERSIAN_BLUE} !important; color: #000000 !important; border-radius:8px; padding:8px 12px; border:none; }}
+input[type="range"] {{ -webkit-appearance:none; width:100%; height:8px; border-radius:8px; background:#e6e6e6; outline:none; }}
+input[type="range"]::-webkit-slider-thumb {{ -webkit-appearance:none; appearance:none; width:18px; height:18px; border-radius:50%; background:{PERSIAN_BLUE}; cursor:pointer; border:2px solid #ffffff; box-shadow:0 2px 6px rgba(0,0,0,0.15); }}
+input[type="range"]::-moz-range-thumb {{ width:18px; height:18px; border-radius:50%; background:{PERSIAN_BLUE}; border:2px solid #ffffff; }}
+[data-testid="stSidebar"] label, [data-testid="stSidebar"] .stRadio label {{ color: #000000 !important; }}
 </style>
 """
-st.markdown(css, unsafe_allow_html=True)
+st.markdown(THEME_CSS, unsafe_allow_html=True)
 
-# ------- Header -------
-with st.container():
-    st.markdown(
-        """
-        <div class="header">
-            <div class="logo">AI</div>
-            <div>
-                <div style="font-size:20px;font-weight:700;color:#0f172a">AI Fraud Detection System</div>
-                <div class="small-muted">Document tampering • Signature verification • KYC • Anomaly detection</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-# ------- Sidebar -------
-st.sidebar.markdown("## Modules")
-module = st.sidebar.radio(
-    "",
-    (
-        "Document Tampering",
-        "Signature Verification",
-        "Aadhaar / PAN Checks",
-        "AI-Based KYC Verification",
-        "Unusual Pattern Detection",
-        "Report & Settings",
-    ),
+st.markdown(
+    f"""
+    <div style="display:flex; gap:14px; align-items:center; margin-bottom:14px;">
+      <div style="width:56px;height:56px;border-radius:10px;background:{PERSIAN_BLUE};display:flex;align-items:center;justify-content:center;color:#000;font-weight:700;">AI</div>
+      <div>
+        <div style="font-size:20px;font-weight:700;color:#0f172a">AI Fraud Detection System</div>
+        <div style="color:#6b7280;font-size:13px">Document tampering · Signature verification · KYC · Anomaly detection</div>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
-st.sidebar.markdown("---")
-st.sidebar.markdown(
-    "Tips:\n\n"
-    "- Best results: high-resolution JPG/PNG for images, CSV/XLSX for transaction data.\n"
-    "- Install optional packages for extra features: easyocr, deepface, pdf2image, python-docx, openpyxl.\n"
-)
-st.sidebar.markdown("---")
-st.sidebar.markdown("Contact: dev@example.com")  # edit if you want
 
-# ------- Utilities -------
+# -------------------- Utilities --------------------
+def safe_to_numeric_series(s):
+    return pd.to_numeric(s.astype(str).str.replace(r"[^0-9.\-]", "", regex=True), errors="coerce")
+
+def read_image_bytes_to_bgr(file_bytes):
+    if file_bytes is None:
+        return None
+    if cv2 is None:
+        try:
+            img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
+            arr = np.array(img)[:, :, ::-1]
+            return arr
+        except Exception:
+            return None
+    try:
+        arr = np.frombuffer(file_bytes, np.uint8)
+        img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        return img
+    except Exception:
+        return None
+
 def normalize_ssim_diff(diff):
     if diff is None or cv2 is None:
         return None
@@ -162,331 +122,489 @@ def normalize_ssim_diff(diff):
     heat = cv2.cvtColor(heat, cv2.COLOR_BGR2RGB)
     return heat
 
-def safe_to_numeric_series(s):
-    return pd.to_numeric(s.astype(str).str.replace(r"[^0-9.\-]", "", regex=True), errors="coerce")
-
-def read_image_bytes(file_bytes):
-    if cv2 is None:
-        try:
-            img = Image.open(io.BytesIO(file_bytes)).convert("RGB")
-            return np.array(img)[:, :, ::-1]  # RGB -> BGR
-        except Exception:
-            return None
-    arr = np.frombuffer(file_bytes, np.uint8)
-    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-    return img
-
-def card(title, content_fn):
-    st.markdown(f'<div class="card"><div class="section-title">{title}</div>', unsafe_allow_html=True)
+def encode_image_to_png_bytes(np_or_pil):
+    """
+    Accepts numpy array (RGB) or PIL.Image and returns PNG bytes.
+    Returns None on failure.
+    """
     try:
-        content_fn()
-    finally:
-        st.markdown("</div>", unsafe_allow_html=True)
+        if isinstance(np_or_pil, np.ndarray):
+            img = Image.fromarray(np_or_pil)
+        else:
+            img = np_or_pil  # assume PIL
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+    except Exception:
+        return None
 
-# ------- MODULES -------
+def put_session_result(key, value):
+    st.session_state.setdefault("results", {})
+    st.session_state["results"][key] = value
 
-# Document Tampering
+def get_session_results():
+    return st.session_state.get("results", {})
+
+# ensure results container
+if "results" not in st.session_state:
+    st.session_state["results"] = {}
+
+# -------------------- Sidebar & Modules --------------------
+st.sidebar.markdown("## Modules", unsafe_allow_html=True)
+module = st.sidebar.radio(
+    "",
+    [
+        "Document Tampering",
+        "Signature Verification",
+        "Aadhaar / PAN Checks",
+        "AI-Based KYC Verification",
+        "Unusual Pattern Detection",
+        "Report & Export"
+    ],
+)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown(
+    "- Use high-res JPG/PNG for images. CSV/XLSX recommended for transactions.\n- Install optional packages for OCR & PDF export: easyocr, deepface, pdf2image, python-docx, reportlab."
+)
+st.sidebar.markdown("---")
+st.sidebar.markdown("Contact: dev@example.com")
+
+# -------------------- Document Tampering --------------------
 if module == "Document Tampering":
-    def doc_tamper():
-        col1, col2 = st.columns(2)
-        with col1:
-            orig = st.file_uploader("Original Document (JPG/PNG)", type=["jpg", "jpeg", "png"], key="orig_doc")
-        with col2:
-            suspect = st.file_uploader("Suspected Document (JPG/PNG)", type=["jpg", "jpeg", "png"], key="sus_doc")
+    st.markdown('<div class="card"><div class="section-title">📄 Document Forgery Detection</div>', unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        uploaded_orig = st.file_uploader("Original Document (JPG/PNG)", type=["jpg", "jpeg", "png"], key="orig")
+    with col2:
+        uploaded_sus = st.file_uploader("Suspected Document (JPG/PNG)", type=["jpg", "jpeg", "png"], key="sus")
 
-        st.markdown("---")
-        ssim_thresh = st.slider("SSIM similarity threshold (lower => stricter)", 0.50, 0.99, 0.85, step=0.01)
+    ssim_thresh = st.slider("SSIM similarity threshold", 0.50, 0.99, 0.85, step=0.01, key="ssim_threshold")
 
-        if orig and suspect:
-            orig_b = orig.read()
-            sus_b = suspect.read()
-            img1 = read_image_bytes(orig_b)
-            img2 = read_image_bytes(sus_b)
-            if img1 is None or img2 is None:
-                st.error("Unable to decode uploaded images. Ensure OpenCV or Pillow is available.")
-                return
-            if ssim is None:
-                st.warning("scikit-image is not installed — SSIM comparison unavailable.")
-                return
+    if uploaded_orig and uploaded_sus:
+        orig_bytes = uploaded_orig.read()
+        sus_bytes = uploaded_sus.read()
+        img1 = read_image_bytes_to_bgr(orig_bytes)
+        img2 = read_image_bytes_to_bgr(sus_bytes)
 
-            img2 = cv2.resize(img2, (img1.shape[1], img1.shape[0]))
-            gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
-            gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-
-            with st.spinner("Computing similarity..."):
-                score, diff = ssim(gray1, gray2, full=True)
-            st.metric("Similarity (SSIM)", f"{score:.4f}")
-            heat = normalize_ssim_diff(diff)
-            if heat is not None:
-                st.image(heat, caption="Difference heatmap (red = more change)", use_column_width=True)
-            if score < ssim_thresh:
-                st.error("⚠ Possible tampering detected (similarity below threshold).")
-            else:
-                st.success("✅ No significant tampering detected.")
-
-    card("Document Forgery Detection", doc_tamper)
-
-# Signature Verification
-elif module == "Signature Verification":
-    def signature_module():
-        col1, col2 = st.columns(2)
-        with col1:
-            s1 = st.file_uploader("Original Signature (JPG/PNG)", type=["jpg", "jpeg", "png"], key="sig1")
-        with col2:
-            s2 = st.file_uploader("Submitted Signature (JPG/PNG)", type=["jpg", "jpeg", "png"], key="sig2")
-
-        st.markdown("---")
-        dist_thresh = st.slider("Match distance threshold (lower => stricter)", 10, 100, 60)
-        match_count_thresh = st.slider("Good matches threshold (higher => stricter)", 5, 60, 30)
-
-        if s1 and s2:
-            b1 = s1.read(); b2 = s2.read()
-            if cv2 is None:
-                st.error("OpenCV (cv2) is required for signature matching.")
-                return
-            img1 = cv2.imdecode(np.frombuffer(b1, np.uint8), cv2.IMREAD_GRAYSCALE)
-            img2 = cv2.imdecode(np.frombuffer(b2, np.uint8), cv2.IMREAD_GRAYSCALE)
-            if img1 is None or img2 is None:
-                st.error("Could not decode signature images.")
-                return
-
-            h = 220
-            img1 = cv2.resize(img1, (int(img1.shape[1] * h / img1.shape[0]), h))
-            img2 = cv2.resize(img2, (int(img2.shape[1] * h / img2.shape[0]), h))
-
-            orb = cv2.ORB_create(5000)
-            kp1, des1 = orb.detectAndCompute(img1, None)
-            kp2, des2 = orb.detectAndCompute(img2, None)
-
-            if des1 is None or des2 is None or len(kp1) == 0 or len(kp2) == 0:
-                st.warning("Not enough features detected. Try higher-resolution or cleaner signature images.")
-                return
-
-            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-            matches = bf.match(des1, des2)
-            good = [m for m in matches if m.distance < dist_thresh]
-            st.metric("Good matches", len(good))
-            st.write(f"Keypoints: {len(kp1)} vs {len(kp2)}")
-
-            if len(good) >= match_count_thresh:
-                st.success("✅ Signature likely genuine (heuristic).")
-            else:
-                st.error("❌ Signature may be forged or dissimilar (heuristic).")
-
-    card("Signature Verification", signature_module)
-
-# Aadhaar / PAN Checks
-elif module == "Aadhaar / PAN Checks":
-    def id_checks():
-        st.markdown("### Aadhaar format check")
-        aad = st.text_input("Aadhaar (XXXX-XXXX-XXXX or 12 digits)", key="aad")
-        if st.button("Verify Aadhaar"):
-            cleaned = aad.replace("-", "").strip()
-            if len(cleaned) == 12 and cleaned.isdigit():
-                st.success("✅ Aadhaar format OK (format-only).")
-            else:
-                st.error("❌ Aadhaar format invalid (12 digits required).")
-
-        st.markdown("---")
-        st.markdown("### PAN format check")
-        pan = st.text_input("PAN (ABCDE1234F)", key="pan")
-        if st.button("Validate PAN"):
-            p = pan.strip().upper()
-            if len(p) == 10 and p[:5].isalpha() and p[5:9].isdigit() and p[-1].isalpha():
-                st.success("✅ PAN format OK (format-only).")
-            else:
-                st.error("❌ PAN format invalid. Example: ABCDE1234F")
-
-    card("Aadhaar / PAN Format Checks", id_checks)
-
-# AI-Based KYC
-elif module == "AI-Based KYC Verification":
-    def kyc_module():
-        st.markdown("Upload selfie and ID photo to verify faces match.")
-        col1, col2 = st.columns(2)
-        with col1:
-            selfie = st.file_uploader("Selfie (JPG/PNG)", type=["jpg","jpeg","png"], key="selfie")
-        with col2:
-            idphoto = st.file_uploader("ID Photo (JPG/PNG)", type=["jpg","jpeg","png"], key="idphoto")
-
-        if selfie and idphoto:
-            if DeepFace is None:
-                st.error("DeepFace not installed. Install deepface to enable facial verification.")
-                return
+        if img1 is None or img2 is None:
+            st.error("Unable to decode images. Install OpenCV or ensure files are valid images.")
+            put_session_result("document_tamper", {"status": "error", "message": "decode_error"})
+        elif ssim is None:
+            st.error("SSIM requires scikit-image. Install with pip install scikit-image.")
+            put_session_result("document_tamper", {"status": "error", "message": "ssim_missing"})
+        else:
             try:
-                b1 = selfie.read(); b2 = idphoto.read()
-                img1 = Image.open(io.BytesIO(b1)).convert("RGB")
-                img2 = Image.open(io.BytesIO(b2)).convert("RGB")
-                arr1 = np.array(img1)
-                arr2 = np.array(img2)
+                img2 = cv2.resize(img2, (img1.shape[1], img1.shape[0]))
+                gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
+                gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
+                with st.spinner("Computing similarity..."):
+                    score, diff = ssim(gray1, gray2, full=True)
+                verdict = "No significant alteration" if score >= ssim_thresh else "Possible forgery detected"
+                st.write(f"🔍 Similarity Score (SSIM): *{score:.4f}*")
+                st.write(f"Result: *{verdict}*")
+                heat = normalize_ssim_diff(diff)
+                diff_png = None
+                if heat is not None:
+                    # encode heat numpy array -> PNG bytes for storage & PDF
+                    diff_png = encode_image_to_png_bytes(heat)
+                    st.image(heat, caption="Difference heatmap", use_column_width=True)
+                put_session_result("document_tamper", {
+                    "status": "ok",
+                    "score": float(score),
+                    "verdict": verdict,
+                    "orig_image": orig_bytes,       # uploaded file bytes (OK)
+                    "sus_image": sus_bytes,         # uploaded file bytes (OK)
+                    "diff_image": diff_png          # PNG bytes or None
+                })
+            except Exception:
+                st.error("Error computing similarity.")
+                st.write(traceback.format_exc())
+                put_session_result("document_tamper", {"status": "error", "message": "ssim_exception"})
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# -------------------- Signature Verification --------------------
+elif module == "Signature Verification":
+    st.markdown('<div class="card"><div class="section-title">✍ Signature Verification</div>', unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        sig_orig = st.file_uploader("Original Signature (JPG/PNG)", type=["jpg", "jpeg", "png"], key="sig_orig")
+    with col2:
+        sig_sub = st.file_uploader("Submitted Signature (JPG/PNG)", type=["jpg", "jpeg", "png"], key="sig_sub")
+
+    dist_thresh = st.slider("Match distance threshold", 5, 120, 60, key="sig_dist")
+    match_count_thresh = st.slider("Good matches threshold", 1, 200, 30, key="sig_matches")
+
+    if sig_orig and sig_sub:
+        b1 = sig_orig.read()
+        b2 = sig_sub.read()
+        if cv2 is None:
+            st.error("OpenCV required for signature matching. Install: pip install opencv-python")
+            put_session_result("signature", {"status": "error", "message": "cv2_missing"})
+        else:
+            try:
+                img1 = cv2.imdecode(np.frombuffer(b1, np.uint8), cv2.IMREAD_GRAYSCALE)
+                img2 = cv2.imdecode(np.frombuffer(b2, np.uint8), cv2.IMREAD_GRAYSCALE)
+                if img1 is None or img2 is None:
+                    st.error("Could not decode signatures.")
+                    put_session_result("signature", {"status": "error", "message": "decode_error"})
+                else:
+                    h = 220
+                    img1 = cv2.resize(img1, (int(img1.shape[1] * h / img1.shape[0]), h))
+                    img2 = cv2.resize(img2, (int(img2.shape[1] * h / img2.shape[0]), h))
+                    orb = cv2.ORB_create(5000)
+                    kp1, des1 = orb.detectAndCompute(img1, None)
+                    kp2, des2 = orb.detectAndCompute(img2, None)
+                    if des1 is None or des2 is None or len(kp1) == 0 or len(kp2) == 0:
+                        st.warning("Not enough features detected in one or both signatures.")
+                        put_session_result("signature", {"status": "error", "message": "not_enough_features"})
+                    else:
+                        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+                        matches = bf.match(des1, des2)
+                        good = [m for m in matches if m.distance < dist_thresh]
+                        st.write(f"Good matches: {len(good)}")
+                        verdict = "Genuine signature (heuristic)" if len(good) >= match_count_thresh else "Possible forgery or mismatch"
+                        if len(good) >= match_count_thresh:
+                            st.success(f"✅ {verdict}")
+                        else:
+                            st.error(f"❌ {verdict}")
+                        # store images as uploaded bytes (b1,b2)
+                        put_session_result("signature", {
+                            "status": "ok",
+                            "good_matches": len(good),
+                            "verdict": verdict,
+                            "orig_image": b1,
+                            "sub_image": b2
+                        })
+            except Exception:
+                st.error("Signature comparison failed.")
+                st.write(traceback.format_exc())
+                put_session_result("signature", {"status": "error", "message": "exception"})
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# -------------------- Aadhaar / PAN --------------------
+elif module == "Aadhaar / PAN Checks":
+    st.markdown('<div class="card"><div class="section-title">🪪 Aadhaar & PAN Format Checks</div>', unsafe_allow_html=True)
+    aadhaar_num = st.text_input("Aadhaar (XXXX-XXXX-XXXX or 12 digits)", key="aad")
+    if st.button("Verify Aadhaar"):
+        cleaned = aadhaar_num.replace("-", "").strip()
+        if len(cleaned) == 12 and cleaned.isdigit():
+            st.success("✅ Aadhaar format looks valid (format-only).")
+            put_session_result("aadhaar", {"status": "ok", "value": cleaned, "verdict": "valid"})
+        else:
+            st.error("❌ Invalid Aadhaar format.")
+            put_session_result("aadhaar", {"status": "ok", "value": cleaned, "verdict": "invalid"})
+    st.markdown("---")
+    pan_num = st.text_input("PAN (ABCDE1234F)", key="pan")
+    if st.button("Validate PAN"):
+        p = pan_num.strip().upper()
+        if len(p) == 10 and p[:5].isalpha() and p[5:9].isdigit() and p[-1].isalpha():
+            st.success("✅ PAN format OK (format-only).")
+            put_session_result("pan", {"status": "ok", "value": p, "verdict": "valid"})
+        else:
+            st.error("❌ PAN format invalid.")
+            put_session_result("pan", {"status": "ok", "value": p, "verdict": "invalid"})
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# -------------------- AI-Based KYC --------------------
+elif module == "AI-Based KYC Verification":
+    st.markdown('<div class="card"><div class="section-title">🧬 AI-Based KYC Verification</div>', unsafe_allow_html=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        selfie_file = st.file_uploader("Upload Selfie Photo (JPG/PNG)", type=["jpg", "jpeg", "png"], key="selfie")
+    with col2:
+        id_file = st.file_uploader("Upload ID Photo (JPG/PNG)", type=["jpg", "jpeg", "png"], key="idphoto")
+
+    if selfie_file and id_file:
+        if DeepFace is None:
+            st.error("DeepFace not installed. Install deepface to enable face verification.")
+            put_session_result("kyc", {"status": "error", "message": "deepface_missing"})
+        else:
+            try:
+                s_bytes = selfie_file.read()
+                id_bytes = id_file.read()
+                img1 = np.array(Image.open(io.BytesIO(s_bytes)).convert("RGB"))
+                img2 = np.array(Image.open(io.BytesIO(id_bytes)).convert("RGB"))
                 with st.spinner("Running face verification..."):
-                    result = DeepFace.verify(arr1, arr2, enforce_detection=True)
+                    try:
+                        result = DeepFace.verify(img1, img2, enforce_detection=True)
+                    except Exception:
+                        result = DeepFace.verify(img1, img2, enforce_detection=False)
                 verified = result.get("verified", False)
-                st.metric("Face match", "Verified" if verified else "Not verified")
                 st.write(result)
                 if verified:
-                    st.success("✅ Face match successful.")
+                    st.success("✅ Face Match Successful")
                 else:
-                    st.error("❌ Face mismatch detected.")
-            except Exception as e:
-                st.error(f"Error during verification: {e}")
+                    st.error("❌ Face Mismatch Detected")
+                put_session_result("kyc", {"status": "ok", "result": result, "verdict": "verified" if verified else "mismatch"})
+            except Exception:
+                st.error("Error during face verification.")
+                st.write(traceback.format_exc())
+                put_session_result("kyc", {"status": "error", "message": "exception"})
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    card("AI-Based KYC Verification", kyc_module)
-
-# Unusual Pattern Detection (Extended uploads)
+# -------------------- Unusual Pattern Detection --------------------
 elif module == "Unusual Pattern Detection":
-    def anomaly_module():
-        st.markdown("Upload transaction files. CSV/XLSX recommended. Images/PDF/DOCX supported via OCR heuristics.")
-        uploaded = st.file_uploader("Upload file (csv, xlsx, jpg, png, pdf, docx)", type=["csv","xls","xlsx","jpg","jpeg","png","pdf","docx","doc"], key="anomaly_up")
-        z_cutoff = st.slider("Z-score cutoff for anomaly (|z| > ...)", 2.0, 5.0, 3.0, step=0.1)
+    st.markdown('<div class="card"><div class="section-title">📊 Unusual Pattern Detection</div>', unsafe_allow_html=True)
+    uploaded = st.file_uploader("Upload transactions/doc (CSV, XLSX, JPG, PNG, PDF, DOCX)", type=["csv", "xls", "xlsx", "jpg", "jpeg", "png", "pdf", "docx", "doc"], key="anomaly")
+    z_cutoff = st.slider("Z-score cutoff for anomaly (|z| > ...)", 2.0, 5.0, 3.0, step=0.1, key="z_cutoff")
 
-        def extract_csv(b): return pd.read_csv(io.BytesIO(b))
-        def extract_excel(b): return pd.read_excel(io.BytesIO(b))
+    def extract_csv(b):
+        try:
+            return pd.read_csv(io.BytesIO(b))
+        except Exception:
+            st.error("Failed to read CSV.")
+            return None
 
-        def ocr_image_to_df(b):
-            if reader is None:
-                st.warning("easyocr not installed — install it for image/PDF OCR support.")
-                return None
-            img = read_image_bytes(b)
-            if img is None: return None
-            try:
-                with st.spinner("Running OCR on image..."):
-                    results = reader.readtext(img)
-            except Exception as e:
-                st.error(f"OCR failed: {e}")
-                return None
-            lines = [r[1] for r in results]
-            rows=[]
-            for line in lines:
-                line_clean = re.sub(r"\s+", " ", line).strip()
-                if "," in line_clean:
-                    rows.append([p.strip() for p in line_clean.split(",")])
-                else:
-                    parts = [p for p in re.split(r"[\s\|;]+", line_clean) if p]
-                    if len(parts) > 1: rows.append(parts)
-            if not rows: return pd.DataFrame({"extracted_text": lines})
-            counts=[len(r) for r in rows]; target=max(set(counts), key=counts.count)
-            filtered=[r for r in rows if len(r)==target]; df=pd.DataFrame(filtered)
-            for col in df.columns: df[col]=safe_to_numeric_series(df[col])
+    def extract_excel(b):
+        try:
+            return pd.read_excel(io.BytesIO(b))
+        except Exception:
+            st.error("Failed to read Excel. Install openpyxl if needed.")
+            return None
+
+    def ocr_image_to_dataframe(b):
+        if reader is None:
+            st.error("easyocr not installed. Install easyocr for OCR.")
+            return None
+        img = read_image_bytes_to_bgr(b)
+        if img is None:
+            st.error("Couldn't decode image.")
+            return None
+        try:
+            with st.spinner("Running OCR..."):
+                ocr_results = reader.readtext(img)
+        except Exception as e:
+            st.error("OCR failed.")
+            st.write(str(e))
+            return None
+        lines = [t[1] for t in ocr_results]
+        rows = []
+        for line in lines:
+            line_clean = re.sub(r"\s+", " ", line).strip()
+            if "," in line_clean:
+                rows.append([p.strip() for p in line_clean.split(",") if p.strip()])
+            else:
+                parts = [p for p in re.split(r"[\s\|;]+", line_clean) if p]
+                if len(parts) > 1:
+                    rows.append(parts)
+        if rows:
+            counts = [len(r) for r in rows]
+            target = max(set(counts), key=counts.count)
+            filtered = [r for r in rows if len(r) == target]
+            df = pd.DataFrame(filtered)
+            for col in df.columns:
+                df[col] = safe_to_numeric_series(df[col])
             return df
+        return pd.DataFrame({"extracted_text": lines})
 
-        def ocr_pdf_to_df(b):
-            try:
-                from pdf2image import convert_from_bytes
-            except Exception:
-                st.warning("pdf2image/poppler not installed — install for better PDF support.")
-                return None
-            try:
-                with st.spinner("Converting PDF pages and running OCR..."):
-                    pages = convert_from_bytes(b)
-                    dfs=[]
-                    for p in pages:
-                        buf=io.BytesIO(); p.save(buf, format="JPEG")
-                        df_page=ocr_image_to_df(buf.getvalue()); 
-                        if df_page is not None: dfs.append(df_page)
-                    if not dfs: return None
+    def ocr_pdf_to_dataframe(b):
+        if not pdf2image_available:
+            st.error("pdf2image or poppler not available. Install for PDF parsing.")
+            return None
+        try:
+            with st.spinner("Converting PDF to images..."):
+                pages = convert_from_bytes(b)
+                dfs = []
+                for page in pages:
+                    buf = io.BytesIO()
+                    page.save(buf, format="JPEG")
+                    dfp = ocr_image_to_dataframe(buf.getvalue())
+                    if dfp is not None:
+                        dfs.append(dfp)
+                if dfs:
                     return pd.concat(dfs, ignore_index=True, sort=False)
-            except Exception as e:
-                st.error(f"PDF processing failed: {e}"); return None
-
-        def docx_to_df(b):
-            try:
-                import docx
-            except Exception:
-                st.warning("python-docx not installed — install for DOCX support.")
                 return None
-            try:
-                doc = docx.Document(io.BytesIO(b)); paras=[p.text for p in doc.paragraphs if p.text.strip()]
-                rows=[]
-                for ptext in paras:
-                    line=re.sub(r"\s+"," ",ptext).strip()
-                    if "," in line: rows.append([c.strip() for c in line.split(",")])
-                    else:
-                        parts=[x for x in re.split(r"[\s\|;]+", line) if x]
-                        if len(parts)>1: rows.append(parts)
-                if not rows: return pd.DataFrame({"extracted_text": paras})
-                counts=[len(r) for r in rows]; target=max(set(counts), key=counts.count)
-                filtered=[r for r in rows if len(r)==target]; df=pd.DataFrame(filtered)
-                for col in df.columns: df[col]=safe_to_numeric_series(df[col])
-                return df
-            except Exception as e:
-                st.error(f"DOCX parse failed: {e}"); return None
+        except Exception as e:
+            st.error("PDF processing failed.")
+            st.write(str(e))
+            return None
 
-        if uploaded:
-            content = uploaded.read(); name = uploaded.name.lower(); data=None
-            try:
-                if name.endswith(".csv"):
-                    data = extract_csv(content)
-                    data = data.apply(lambda col: pd.to_numeric(col.astype(str).str.replace(r"[^0-9.\-]", "", regex=True), errors="ignore"))
-                elif name.endswith((".xls","xlsx")):
-                    data = extract_excel(content)
-                    data = data.apply(lambda col: pd.to_numeric(col.astype(str).str.replace(r"[^0-9.\-]", "", regex=True), errors="ignore"))
-                elif name.endswith((".jpg","jpeg","png")):
-                    data = ocr_image_to_df(content)
-                elif name.endswith(".pdf"):
-                    data = ocr_pdf_to_df(content)
-                elif name.endswith((".docx","doc")):
-                    data = docx_to_df(content)
+    def docx_to_dataframe(b):
+        if not docx_available:
+            st.error("python-docx not installed.")
+            return None
+        try:
+            d = docx.Document(io.BytesIO(b))
+            paragraphs = [p.text for p in d.paragraphs if p.text.strip()]
+            rows = []
+            for ptext in paragraphs:
+                line = re.sub(r"\s+", " ", ptext).strip()
+                if "," in line:
+                    rows.append([c.strip() for c in line.split(",")])
                 else:
-                    st.error("Unsupported file type.")
-            except Exception as e:
-                st.error(f"Failed to parse uploaded file: {e}"); data=None
+                    parts = [x for x in re.split(r"[\s\|;]+", line) if x]
+                    if len(parts) > 1:
+                        rows.append(parts)
+            if rows:
+                counts = [len(r) for r in rows]
+                target = max(set(counts), key=counts.count)
+                filtered = [r for r in rows if len(r) == target]
+                df = pd.DataFrame(filtered)
+                for col in df.columns:
+                    df[col] = safe_to_numeric_series(df[col])
+                return df
+            return pd.DataFrame({"extracted_text": paragraphs})
+        except Exception as e:
+            st.error("DOCX parse failed.")
+            st.write(str(e))
+            return None
 
-            if data is None:
-                st.info("Could not extract table from file. CSV/XLSX are best for anomaly detection.")
-                return
+    if uploaded:
+        file_bytes = uploaded.read()
+        name = uploaded.name.lower()
+        data = None
+        try:
+            if name.endswith(".csv"):
+                data = extract_csv(file_bytes)
+                if data is not None:
+                    data = data.apply(lambda col: pd.to_numeric(col.astype(str).str.replace(r"[^0-9.\-]", "", regex=True), errors="ignore"))
+            elif name.endswith((".xls", ".xlsx")):
+                data = extract_excel(file_bytes)
+                if data is not None:
+                    data = data.apply(lambda col: pd.to_numeric(col.astype(str).str.replace(r"[^0-9.\-]", "", regex=True), errors="ignore"))
+            elif name.endswith((".jpg", ".jpeg", ".png")):
+                data = ocr_image_to_dataframe(file_bytes)
+            elif name.endswith(".pdf"):
+                data = ocr_pdf_to_dataframe(file_bytes)
+            elif name.endswith((".docx", ".doc")):
+                data = docx_to_dataframe(file_bytes)
+            else:
+                st.error("Unsupported file type.")
+        except Exception:
+            st.error("Failed to parse uploaded file.")
+            st.write(traceback.format_exc())
 
+        if data is None:
+            st.info("Couldn't extract structured data. CSV/XLSX recommended.")
+            put_session_result("anomaly", {"status": "error", "message": "no_structured_data"})
+        else:
             st.subheader("Parsed preview")
             st.dataframe(data.head(10))
-
             numeric = data.select_dtypes(include=[np.number])
             if numeric.shape[1] == 0:
                 coerced = data.apply(lambda col: pd.to_numeric(col.astype(str).str.replace(r"[^0-9.\-]", "", regex=True), errors="coerce"))
                 numeric = coerced.select_dtypes(include=[np.number])
                 if numeric.shape[1] > 0:
-                    for c in numeric.columns: data[c]=coerced[c]
-
+                    for c in numeric.columns:
+                        data[c] = coerced[c]
             if numeric.shape[1] == 0:
                 st.warning("No numeric columns found — anomaly detection requires numeric data.")
-                return
-
-            with st.spinner("Computing anomalies..."):
-                z = (numeric - numeric.mean()) / numeric.std(ddof=0)
-                mask = (z.abs() > z_cutoff).any(axis=1)
-                anomalies = data[mask]
-
-            st.subheader("Detected anomalies")
-            if anomalies.shape[0] == 0:
-                st.write("No anomalies found with current cutoff.")
+                put_session_result("anomaly", {"status": "error", "message": "no_numeric"})
             else:
-                st.dataframe(anomalies)
-                st.download_button("Download anomalies (CSV)", data=anomalies.to_csv(index=False).encode(), file_name="anomalies.csv", mime="text/csv")
+                with st.spinner("Computing anomalies..."):
+                    z = (numeric - numeric.mean()) / numeric.std(ddof=0)
+                    mask = (z.abs() > z_cutoff).any(axis=1)
+                    anomalies = data[mask]
+                st.subheader("Detected anomalies")
+                if anomalies.shape[0] == 0:
+                    st.write("No anomalies detected with the current cutoff.")
+                else:
+                    st.dataframe(anomalies)
+                    put_session_result("anomaly", {"status": "ok", "count": int(anomalies.shape[0]), "sample": anomalies.head(5).to_dict(orient="records")})
+                    st.download_button("Download anomalies (CSV)", data=anomalies.to_csv(index=False).encode(), file_name="anomalies.csv", mime="text/csv")
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    card("Unusual Pattern Detection", anomaly_module)
+# -------------------- Report & Export --------------------
+elif module == "Report & Export":
+    st.markdown('<div class="card"><div class="section-title">📁 Report & Export</div>', unsafe_allow_html=True)
+    st.write("Generate a human-readable PDF report of the latest analysis from different modules.")
+    st.write("Latest results (summary):")
+    results = get_session_results()
+    st.json(results)
 
-# Report & Settings
-elif module == "Report & Settings":
-    def report_settings():
-        st.markdown("## Report & Export")
-        st.markdown("This is a prototype area. You can implement full PDF/XLSX reports that assemble screenshots, anomaly tables, and verification results.")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Generate sample report (prototype)"):
-                st.success("Prototype: implement PDF builder to produce final report.")
-        with col2:
-            if st.button("Dependencies checklist"):
-                st.info(
-                    "- Required: streamlit, numpy, pandas, pillow\n"
-                    "- Recommended: opencv-python, scikit-image, openpyxl\n"
-                    "- Optional: easyocr, deepface, pdf2image, python-docx\n"
-                    "- OS: poppler for pdf2image"
-                )
-        st.markdown("---")
-        st.markdown("### Advanced (developer)")
-        with st.expander("Developer options"):
-            st.write("Tune or persist thresholds here in the future.")
+    if reportlab_available:
+        if st.button("Generate Fraud Report (PDF)"):
+            try:
+                buffer = io.BytesIO()
+                c = canvas.Canvas(buffer, pagesize=A4)
+                width, height = A4
+                margin = 40
+                y = height - margin
 
-    card("Report & Settings", report_settings)
+                c.setFont("Helvetica-Bold", 16)
+                c.drawString(margin, y, "AI Fraud Detection Report")
+                c.setFont("Helvetica", 10)
+                y -= 20
+                c.drawString(margin, y, "Generated by AI Fraud Detection System")
+                y -= 30
 
-# Footer
-st.markdown('<div class="footer">Made with care — AI Fraud Detection Demo (light theme)</div>', unsafe_allow_html=True)
+                # iterate results
+                for key, value in results.items():
+                    c.setFont("Helvetica-Bold", 12)
+                    if y < margin + 120:
+                        c.showPage()
+                        y = height - margin
+                    c.drawString(margin, y, f"{key.replace('_',' ').title()}:")
+                    y -= 16
+                    c.setFont("Helvetica", 10)
+
+                    if isinstance(value, dict):
+                        for k2, v2 in value.items():
+                            # handle image bytes specially
+                            if k2 in ("orig_image", "sus_image", "diff_image", "sub_image"):
+                                if v2:
+                                    try:
+                                        # v2 should be image file bytes (PNG/JPEG)
+                                        img = Image.open(io.BytesIO(v2)).convert("RGB")
+                                        # thumbnail within bounds
+                                        max_w = width - 2*margin
+                                        max_h = 140
+                                        img.thumbnail((max_w, max_h))
+                                        # page break if not enough space
+                                        if y - img.size[1] < margin:
+                                            c.showPage()
+                                            y = height - margin
+                                        ir = ImageReader(img)
+                                        c.drawImage(ir, margin, y - img.size[1], width=img.size[0], height=img.size[1])
+                                        y -= img.size[1] + 8
+                                        continue
+                                    except Exception:
+                                        # fallback to text entry
+                                        c.drawString(margin+8, y, f"{k2}: <image could not be rendered>")
+                                        y -= 12
+                                        continue
+                                else:
+                                    c.drawString(margin+8, y, f"{k2}: <no image provided>")
+                                    y -= 12
+                                    continue
+                            # normal value
+                            text_line = f"{k2}: {str(v2)}"
+                            # wrap long lines
+                            max_chars = 90
+                            while len(text_line) > max_chars:
+                                c.drawString(margin+8, y, text_line[:max_chars])
+                                text_line = text_line[max_chars:]
+                                y -= 12
+                                if y < margin + 80:
+                                    c.showPage()
+                                    y = height - margin
+                            c.drawString(margin+8, y, text_line)
+                            y -= 12
+                            if y < margin + 80:
+                                c.showPage()
+                                y = height - margin
+                    else:
+                        c.drawString(margin+8, y, str(value))
+                        y -= 14
+                    y -= 10
+                    if y < margin + 80:
+                        c.showPage()
+                        y = height - margin
+
+                c.showPage()
+                c.save()
+                buffer.seek(0)
+                b64 = base64.b64encode(buffer.read()).decode()
+                href = f'<a href="data:application/pdf;base64,{b64}" download="fraud_report.pdf">Download Fraud Report (PDF)</a>'
+                st.markdown(href, unsafe_allow_html=True)
+            except Exception:
+                st.error("Failed to generate PDF report.")
+                st.write(traceback.format_exc())
+    else:
+        st.error("PDF export not available. Install reportlab: pip install reportlab and reload the app to enable PDF report generation.")
+        st.info("You can download anomalies CSV from the Unusual Pattern module.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# -------------------- Footer --------------------
+st.markdown("<div style='margin-top:12px;color:#6b7280;font-size:13px;'>Made with care — AI Fraud Detection (white theme, Persian Blue accents)</div>", unsafe_allow_html=True)
