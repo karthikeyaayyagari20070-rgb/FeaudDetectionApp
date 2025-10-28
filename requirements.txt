@@ -1,18 +1,9 @@
-# core image + processing
+streamlit==1.24.1
 opencv-python-headless==4.10.0.84
-Pillow
-
-# data science
+easyocr==1.6.2
 numpy>=1.23.5,<2.0
-pandas
-scikit-image
-reportlab
-
-# ML / deep learning
-tensorflow==2.16.2
-
-# face analysis
-deepface
-
-# (optional) if you really need a separate Keras package, add it later
-# keras  # normally not required when using tensorflow
+scikit-image==0.25.2
+deepface==0.0.90
+pandas==2.3.3
+Pillow==12.0.0
+reportlab==4.4.4
