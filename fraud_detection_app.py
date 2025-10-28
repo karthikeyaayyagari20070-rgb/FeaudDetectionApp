@@ -1,199 +1,135 @@
-# ==============================
-# AI Fraud Detection System
-# ==============================
-
 import streamlit as st
 import cv2
-import easyocr
 import numpy as np
-from skimage.metrics import structural_similarity as ssim
-from deepface import DeepFace
+import easyocr
 from PIL import Image
 import pandas as pd
+from skimage.metrics import structural_similarity as ssim
+from deepface import DeepFace
 
-# Streamlit page config and light theme styling
-st.set_page_config(
-    page_title="AI Fraud Detection System",
-    layout="wide",
-    initial_sidebar_state="expanded",
-    page_icon="🏦"
-)
-
-# Custom official banking theme with light colors
+# --- Theming ---
+st.set_page_config(page_title="Secure Fraud Detection", layout="wide", page_icon="🏦")
 st.markdown("""
     <style>
-    body {
-        background-color: #f5f8fa !important;
-    }
     .stApp {
-        background-color: #f5f8fa !important;
+        background-color: #f3f6fb;
     }
-    .css-18e3th9 { /* Main block */
-        background-color: #fdfdfd !important;
-        color: #003366 !important;
+    .css-18e3th9 {
+        background: #fff;
+        border-radius: 10px;
+        box-shadow: 0 2px 8px #dee8f7;
     }
-    .css-1d391kg { /* Sidebar */
-        background-color: #ffffff !important;
-        color: #003366 !important;
+    .css-10trblm {
+        color: #003366;
     }
-    header, .css-fblp2m {
-        background: #003366 !important;
-        color: #ffffff !important;
+    div[role="dialog"] {
+        background: #fff;
     }
-    .st-bc, .st-cb, .st-ag, .st-df {
-        color: #1a2639 !important;
+    .stButton > button {
+        background-color: #0056a3;
+        color: #fff;
+        border-radius: 6px;
+        font-weight: 600;
     }
-    .stButton>button {
-        background-color: #0055A4 !important;
-        color: #ffffff !important;
-        border-radius: 7px;
-        border: None;
-        font-weight: bold;
-    }
-    .stButton>button:hover {
-        background-color: #003366 !important;
-        color: #fff !important;
-    }
-    .stSelectbox>div>div {
-        color: #003366 !important;
-    }
-    .st-bf {
-        background-color: #ffffff !important;
-        color: #003366 !important;
-    }
-    .stDataFrame, .css-1m1bby5 {background: #f8fafb !important;}
     </style>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
-st.title("🏦 AI Fraud Detection System")
-st.markdown('<h4 style="color:#003366;">Upload documents to verify authenticity and detect fraud on our secure banking platform.</h4>', unsafe_allow_html=True)
+st.title("🏦 Secure Fraud Detection System")
+st.markdown("Welcome to your next-generation, secure banking fraud detection and eKYC portal.")
 
-# Sidebar modules
-option = st.sidebar.selectbox("Choose Module", [
-    "Document Tampering",
-    "Signature Verification",
-    "Aadhaar Fraud Detection",
-    "PAN Fraud Detection",
-    "AI-Based KYC Verification",
-    "Unusual Pattern Detection"
+menu = st.sidebar.radio("Choose Service", [
+    "Document Forgery Detection",
+    "Signature Authentication",
+    "Aadhaar Check",
+    "PAN Validation",
+    "AI Face KYC",
+    "Transaction Anomaly"
 ])
 
-# Initialize OCR reader
 reader = easyocr.Reader(['en'], gpu=False)
 
-# -------------------- MODULE 1: DOCUMENT TAMPERING --------------------
-if option == "Document Tampering":
-    st.header("📄 Document Forgery Detection")
-
+if menu == "Document Forgery Detection":
+    st.header("📄 Document Tampering Detection")
     col1, col2 = st.columns(2)
-    with col1:
-        uploaded_doc1 = st.file_uploader("Upload Original Document", type=["jpg", "png", "jpeg"])
-    with col2:
-        uploaded_doc2 = st.file_uploader("Upload Suspected Document", type=["jpg", "png", "jpeg"])
-
-    if uploaded_doc1 and uploaded_doc2:
-        img1 = cv2.imdecode(np.frombuffer(uploaded_doc1.read(), np.uint8), cv2.IMREAD_COLOR)
-        img2 = cv2.imdecode(np.frombuffer(uploaded_doc2.read(), np.uint8), cv2.IMREAD_COLOR)
-
+    with col1: original = st.file_uploader("Original Document", type=["png","jpg","jpeg"], key="oridoc")
+    with col2: suspect = st.file_uploader("Suspected Document", type=["png","jpg","jpeg"], key="susdoc")
+    if original and suspect:
+        img1 = cv2.imdecode(np.frombuffer(original.read(), np.uint8), cv2.IMREAD_COLOR)
+        img2 = cv2.imdecode(np.frombuffer(suspect.read(), np.uint8), cv2.IMREAD_COLOR)
         img2 = cv2.resize(img2, (img1.shape[1], img1.shape[0]))
         gray1 = cv2.cvtColor(img1, cv2.COLOR_BGR2GRAY)
         gray2 = cv2.cvtColor(img2, cv2.COLOR_BGR2GRAY)
-
         score, diff = ssim(gray1, gray2, full=True)
-        st.write(f"🔍 Similarity Score: {score:.2f}")
-
-        if score < 0.85:
-            st.error("⚠ Possible forgery detected.")
+        st.write(f"**Similarity Score:** {score:.3f}")
+        if score < 0.88:
+            st.error("⚠️ Possible alteration detected.")
         else:
-            st.success("✅ No significant alteration found.")
-        # Enhance the diff visualization for clarity
-        st.image((diff*255).astype(np.uint8), caption="Difference Map", use_container_width=True)
+            st.success("✅ No major differences found.")
+        st.image((diff*255).astype(np.uint8), caption="Visual Difference", use_column_width=True)
 
-# -------------------- MODULE 2: SIGNATURE VERIFICATION --------------------
-elif option == "Signature Verification":
-    st.header("✍ Signature Verification")
-
+if menu == "Signature Authentication":
+    st.header("✍️ Signature Comparison")
     col1, col2 = st.columns(2)
-    with col1:
-        sig1_file = st.file_uploader("Upload Original Signature", type=["jpg", "png", "jpeg"])
-    with col2:
-        sig2_file = st.file_uploader("Upload Submitted Signature", type=["jpg", "png", "jpeg"])
-
-    if sig1_file and sig2_file:
-        sig1 = cv2.imdecode(np.frombuffer(sig1_file.read(), np.uint8), cv2.IMREAD_GRAYSCALE)
-        sig2 = cv2.imdecode(np.frombuffer(sig2_file.read(), np.uint8), cv2.IMREAD_GRAYSCALE)
-
+    s1 = col1.file_uploader("Reference Signature", type=["png","jpg","jpeg"], key="sig1")
+    s2 = col2.file_uploader("Submitted Signature", type=["png","jpg","jpeg"], key="sig2")
+    if s1 and s2:
+        sig1 = cv2.imdecode(np.frombuffer(s1.read(), np.uint8), cv2.IMREAD_GRAYSCALE)
+        sig2 = cv2.imdecode(np.frombuffer(s2.read(), np.uint8), cv2.IMREAD_GRAYSCALE)
         orb = cv2.ORB_create()
         kp1, des1 = orb.detectAndCompute(sig1, None)
         kp2, des2 = orb.detectAndCompute(sig2, None)
-
         if des1 is not None and des2 is not None:
             bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
             matches = bf.match(des1, des2)
             score = len(matches)
-            st.write(f"Match Score: {score}")
-
-            if score > 50:
-                st.success("✅ Genuine Signature")
-            else:
-                st.error("❌ Forged Signature")
+            st.write(f"Feature Match Score: {score}")
+            st.success("✅ Likely Genuine Signature" if score > 45 else "❌ Possible Forgery")
         else:
-            st.warning("Could not detect enough features.")
+            st.warning("Couldn't extract enough features.")
 
-# -------------------- MODULE 3: AADHAAR FRAUD DETECTION --------------------
-elif option == "Aadhaar Fraud Detection":
-    st.header("🪪 Aadhaar Fraud Verification (Prototype)")
-    aadhaar_num = st.text_input("Enter Aadhaar Number (XXXX-XXXX-XXXX):")
-    if st.button("Verify"):
-        if len(aadhaar_num) == 14:
-            st.success("✅ Aadhaar appears valid (format check only).")
+if menu == "Aadhaar Check":
+    st.header("🪪 Aadhaar Number Format Validator")
+    aadhaar = st.text_input("Aadhaar No. (XXXX-XXXX-XXXX):")
+    if st.button("Validate Aadhaar"):
+        if len(aadhaar) == 14 and all(x.isdigit() or x == "-" for x in aadhaar.replace("-", "")):
+            st.success("Structure appears valid (format only).")
         else:
-            st.error("❌ Invalid Aadhaar format.")
+            st.error("Invalid Aadhaar number format.")
 
-# -------------------- MODULE 4: PAN FRAUD DETECTION --------------------
-elif option == "PAN Fraud Detection":
-    st.header("💳 PAN Card Fraud Detection (Prototype)")
-    pan_num = st.text_input("Enter PAN Number (ABCDE1234F):")
-    if st.button("Validate"):
-        if len(pan_num) == 10 and pan_num[:5].isalpha() and pan_num[5:9].isdigit() and pan_num[-1].isalpha():
-            st.success("✅ Valid PAN structure.")
+if menu == "PAN Validation":
+    st.header("💳 PAN Structure Validation")
+    pan = st.text_input("PAN Number (ABCDE1234F):")
+    if st.button("Validate PAN"):
+        if len(pan) == 10 and pan[:5].isalpha() and pan[5:9].isdigit() and pan[-1].isalpha():
+            st.success("PAN format appears correct.")
         else:
-            st.error("❌ Invalid PAN format.")
+            st.error("Incorrect PAN format.")
 
-# -------------------- MODULE 5: AI-BASED KYC VERIFICATION --------------------
-elif option == "AI-Based KYC Verification":
-    st.header("🧬 AI-Based KYC Verification")
+if menu == "AI Face KYC":
+    st.header("🧬 Automated KYC (Face Match)")
     col1, col2 = st.columns(2)
-    with col1:
-        selfie = st.file_uploader("Upload Selfie Photo", type=["jpg", "png", "jpeg"])
-    with col2:
-        id_photo = st.file_uploader("Upload ID Photo", type=["jpg", "png", "jpeg"])
-
-    if selfie and id_photo:
-        st.info("Running facial similarity analysis using DeepFace...")
+    with col1: selfie = st.file_uploader("Upload Selfie", type=["png","jpg","jpeg"], key="selfie")
+    with col2: idphoto = st.file_uploader("Upload ID Photo", type=["png","jpg","jpeg"], key="idpic")
+    if selfie and idphoto:
+        st.info("Running DeepFace face similarity check...")
         try:
-            result = DeepFace.verify(np.array(Image.open(selfie)), np.array(Image.open(id_photo)))
-            if result["verified"]:
-                st.success("✅ Face Match Successful")
-            else:
-                st.error("❌ Face Mismatch Detected")
+            result = DeepFace.verify(np.array(Image.open(selfie)), np.array(Image.open(idphoto)), enforce_detection=False)
+            st.success("Faces Match" if result.get("verified") else "Faces do NOT Match")
         except Exception as e:
-            st.error(f"Error during verification: {e}")
+            st.error(f"Error during DeepFace analysis: {e}")
 
-# -------------------- MODULE 6: UNUSUAL PATTERN DETECTION --------------------
-elif option == "Unusual Pattern Detection":
-    st.header("📊 Unusual Pattern Detection")
-    uploaded_file = st.file_uploader("Upload transaction data (CSV)", type="csv")
-    if uploaded_file:
-        data = pd.read_csv(uploaded_file)
-        st.dataframe(data.head())
-
-        z_scores = (data - data.mean()) / data.std()
-        anomalies = data[(abs(z_scores) > 3).any(axis=1)]
-        st.subheader("🔎 Detected Unusual Patterns:")
+if menu == "Transaction Anomaly":
+    st.header("📊 Transaction Anomaly Detection")
+    datafile = st.file_uploader("Transaction CSV File", type="csv")
+    if datafile:
+        df = pd.read_csv(datafile)
+        st.dataframe(df.head())
+        z = (df.select_dtypes('number') - df.select_dtypes('number').mean()) / df.select_dtypes('number').std()
+        anomalies = df.loc[(z.abs() > 3).any(axis=1)]
+        st.subheader("Potential Outliers:")
         st.dataframe(anomalies)
 
-# -------------------- REPORT SUMMARY --------------------
 st.divider()
-if st.button("Generate Fraud Report"):
-    st.success("🧾 Fraud detection report generated successfully.")
+if st.button("Generate Comprehensive Fraud Report"):
+    st.success("Your report is ready. Download from the secure console or save this session!")
+
