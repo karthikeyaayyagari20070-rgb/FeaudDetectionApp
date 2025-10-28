@@ -1,29 +1,18 @@
-# Core framework
-streamlit==1.38.0
-
-# Image processing
+# core image + processing
 opencv-python-headless==4.10.0.84
-Pillow==10.4.0
-numpy==1.26.4
-scikit-image==0.24.0
+Pillow
 
-# OCR (text extraction)
-easyocr==1.7.1
+# data science
+numpy>=1.23.5,<2.0
+pandas
+scikit-image
+reportlab
 
-# Face recognition (for KYC verification)
-deepface==0.0.93
+# ML / deep learning
+tensorflow==2.16.2
 
-# Data handling
-pandas==2.2.2
-openpyxl==3.1.5
+# face analysis
+deepface
 
-# Document parsing (PDF / DOCX)
-python-docx==1.1.2
-pdf2image==1.17.0
-
-# Report generation
-reportlab==4.2.2
-
-# Optional: improve performance & compatibility
-torch>=2.2.0
-torchvision>=0.17.0
+# (optional) if you really need a separate Keras package, add it later
+# keras  # normally not required when using tensorflow
